@@ -1,6 +1,5 @@
 """Check supervision, HTTP, trajectory socket, and essential ROS participants."""
 
-import socket
 import subprocess
 import time
 from urllib.request import urlopen
@@ -8,6 +7,7 @@ from urllib.request import urlopen
 import rclpy
 import yaml
 from rclpy.node import Node
+from websockets.sync.client import connect
 
 
 def main():
@@ -21,11 +21,11 @@ def main():
         with urlopen(url, timeout=2) as response:
             if response.status != 200:
                 raise RuntimeError(f"HTTP check failed: {url}")
-    with socket.create_connection(("127.0.0.1", 8006), timeout=2):
+    with connect("ws://127.0.0.1:8006/", open_timeout=2, close_timeout=1):
         pass
     with open("/run/jetracer/fleet.yaml", encoding="utf-8") as stream:
         fleet_name = yaml.safe_load(stream)["rmf_fleet"]["name"]
-    required = {"rmf_traffic_schedule_primary", "rmf_task_dispatcher", f"{fleet_name}_command_handle"}
+    required = {"rmf_traffic_schedule_primary", "rmf_dispatcher_node", f"{fleet_name}_command_handle"}
     rclpy.init()
     node = Node("jetracer_container_healthcheck", enable_rosout=False)
     try:
