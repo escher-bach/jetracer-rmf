@@ -1,0 +1,160 @@
+# FLEET CONFIG =================================================================
+# RMF Fleet parameters, tuned against src/jetracer_ros2/config/{nav2_params.yaml,
+# amcl_params.yaml,ekf.yaml} in jetracer_ros2_port (read-only reference, not
+# modified). Values called out below differ from the free_fleet_examples TB3
+# template on purpose -- see inline comments.
+
+rmf_fleet:
+  name: "jetracer_fleet"
+  limits:
+    # nav2_params.yaml's FollowPath.desired_linear_vel is 0.3 m/s -- use that as
+    # the top speed. No linear acceleration limit is set anywhere in the real
+    # nav2 config (RegulatedPurePursuitController doesn't take one), so 0.5 here
+    # is a conservative placeholder, not a measured value -- tune against real
+    # behavior.
+    linear: [0.3, 0.5]
+    # 0.6 rad/s derived from v/min_turning_radius = 0.3 / 0.50 (nav2_params.yaml's
+    # regulated_linear_scaling_min_radius / SmacPlannerHybrid.minimum_turning_radius,
+    # both 0.50m, matching the physical Ackermann chassis). 1.5 matches
+    # FollowPath.max_angular_accel exactly.
+    angular: [0.6, 1.5]
+  profile: # Robot profile is modelled as a circle
+    # jetracer's actual footprint (nav2_params.yaml costmap footprint) is a
+    # 0.20m x 0.16m rectangle: [[-0.10,-0.08],[0.10,-0.08],[0.10,0.08],[-0.10,0.08]].
+    # Bounding circle radius = sqrt(0.10^2+0.08^2) ~= 0.128m; rounded up for margin.
+    footprint: 0.15
+    # Bumped from 0.3 -> 0.4 as a mitigation after a real head-on near-collision
+    # where AMCL localization quality degraded as the two robots closed in on
+    # each other (likely each robot's LiDAR seeing the other as an unmapped
+    # obstacle) -- RMF's negotiation is only as good as the reported poses, so
+    # widening the berth it holds at gives more margin before that degradation
+    # zone is reached. This does NOT fix the underlying localization issue,
+    # only reduces how close a hold/negotiation lets them get.
+    #
+    # Ceiling to be aware of: the door<->v9 lane (added to connect the door
+    # waypoint into the graph) is only ~0.40m long -- two robots' vicinity
+    # radii sum when RMF checks separation, so pushing this much past ~0.2
+    # would make that specific lane geometrically impossible to hold on
+    # safely (a different failure mode: RMF unable to find a valid holding
+    # point near door). 0.4 stays well clear of that ceiling. If AMCL
+    # degradation is confirmed to still cause problems at this value, treat
+    # that as evidence the fix needs to be in localization, not more vicinity.
+    vicinity: 0.4
+  reversible: True # matches nav2_params.yaml's FollowPath.allow_reversing: true
+  # Battery accounting is fully disabled below (account_for_battery_drain: False)
+  # because jetracer.cpp (the robot's firmware driver) has no battery publisher at
+  # all -- it only publishes imu, odom, and motor/l|rvel|set. These battery_system/
+  # mechanical_system/ambient_system/tool_system values are therefore unused
+  # placeholders, kept only because the fleet config schema expects the keys to
+  # exist; do not treat them as real jetracer specs.
+  battery_system:
+    voltage: 12.0
+    capacity: 24.0
+    charging_current: 5.0
+  mechanical_system:
+    mass: 20.0
+    moment_of_inertia: 10.0
+    friction_coefficient: 0.22
+  ambient_system:
+    power: 20.0
+  tool_system:
+    power: 0.0
+  recharge_threshold: 0.10
+  recharge_soc: 1.0
+  publish_fleet_state: 10.0
+  account_for_battery_drain: False # no battery sensor/topic exists on jetracer
+  task_capabilities:
+    loop: True
+    delivery: True
+  # MUST stay "nothing" while responsive_wait is True -- the two are mutually
+  # exclusive, which is not documented upstream.
+  #
+  # "park" parses to a ParkRobotIndefinitely request factory
+  # (EasyFullControl.cpp), which FleetUpdateHandle installs as the robot's
+  # _idle_task, and TaskManager's _begin_waiting() hits
+  # `if (_idle_task) { ...; return; }` before it can reach the branch that
+  # starts ResponsiveWait. Setting "park" here would silently make
+  # responsive_wait below a no-op.
+  #
+  # Consequence: robots stay where they finish a task rather than returning to
+  # their `charger:` waypoint. Responsive wait then holds them on whichever
+  # graph waypoint is nearest.
+  finishing_request: "nothing"
+  # On, so idle robots keep an itinerary in the traffic schedule, are detected
+  # as conflicts, and negotiate out of another robot's path instead of being
+  # planned straight through.
+  #
+  # The idle twitching this used to cause is handled in the adapter rather than
+  # here: nav2_robot_adapter.py compares the nav graph index RMF asks for
+  # against the one the robot last arrived at, and reports a command for the
+  # same waypoint complete without driving. See _is_redundant() there.
+  responsive_wait: True
+  # All jetracers have the same chassis, Nav2 stack and map, so their adapter
+  # settings belong in one template. Runtime onboarding copies this block and
+  # adds only the parking waypoint allocated to that robot.
+  robot_defaults:
+    # Minimum gap between adapter-initiated replans. This prevents a Nav2
+    # abort/replan hot loop from flooding RMF traffic negotiation.
+    replan_cooldown_sec: 2.0
+    navigation_stack: 2
+    # Real hardware needs time for AMCL convergence and EKF startup fusion.
+    init_timeout_sec: 20
+    initial_map: "L1"
+    # Real WiFi needs more margin than the original loopback simulation.
+    service_call_timeout_sec: 2.0
+    # map_frame and robot_frame intentionally use Nav2RobotAdapter's matching
+    # defaults: map and base_footprint.
+    maps:
+      L1:
+        # This must be an absolute path on the Jazzy fleet-adapter machine;
+        # launch substitutions are not expanded inside this YAML file.
+        map_url: "/home/jetson/ff_ws/install/jetracer_fleet/share/jetracer_fleet/maps/jetracer/jetracer_map.yaml"
+
+  robot_discovery:
+    enabled: True
+    # Each robot-side zenoh bridge must use /jetracer_<unique-name>.
+    namespace_prefix: "jetracer_"
+    # One Zenoh key chunk for the namespace, followed by the ROS TF topic.
+    tf_keyexpr: "*/tf"
+    # A transient initialization failure is retried when TF is observed after
+    # this backoff. Active robots are deduplicated permanently for the run.
+    retry_interval_sec: 10.0
+
+  # Runtime capacity and deterministic allocation order. These graph vertices
+  # are both parking spots and chargers because RMF requires every robot's
+  # compatible charger to carry is_charger in the generated navigation graph.
+  # The assignment is a logical home waypoint; finishing_request remains
+  # "nothing" so responsive_wait continues to work and does not automatically
+  # drive an idle robot home.
+  parking_spots: ["inventory", "diamond", "operator", "door", "top"]
+
+  # Kept as an empty standard RMF field for parser compatibility. Legacy fixed
+  # robots may still be listed here, but normal operation needs no per-robot
+  # entries: five live jetracer_* namespaces consume the five spaces above.
+  robots: {}
+
+  robot_state_update_frequency: 10.0
+
+
+# TRANSFORM CONFIG =============================================================
+# For computing transforms between Robot and RMF coordinate systems.
+#
+# Regenerated 2026-07-29 for the re-SLAMmed lab map (origin moved from
+# [-4.42, -6.06] to [-9.43, -4.17], grid 192x245 -> 269x273). Derived
+# analytically by tools/rmf_map_calib.py, not clicked in RViz: the drawing PNG
+# is a pixel-identical conversion of the occupancy PGM, so RMF->robot is a pure
+# translation of (-9.4300, +9.4800). The four points below are synthetic but
+# exact, inset 15% from the corners so the affine fit stays well conditioned.
+#
+# Do not merge these with older points -- the previous block was calibrated
+# against the old map origin and averaging the two fits neither map.
+reference_coordinates:
+  L1:
+    rmf: [[2.0175, -2.0475],
+          [11.4325, -2.0475],
+          [11.4325, -11.6025],
+          [2.0175, -11.6025]]
+    robot: [[-7.4125, 7.4325],
+            [2.0025, 7.4325],
+            [2.0025, -2.1225],
+            [-7.4125, -2.1225]]

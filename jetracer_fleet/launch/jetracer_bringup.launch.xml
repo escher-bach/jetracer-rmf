@@ -1,0 +1,72 @@
+<?xml version='1.0' ?>
+
+<!--
+  Whole ROS side of the jetracer fleet in one command: RMF core (traffic
+  schedule, building map server, visualizers/RViz, dispatcher) followed by the
+  fleet adapter.
+
+    ros2 launch jetracer_fleet jetracer_bringup.launch.xml \
+      server_uri:=ws://localhost:8000/_internal
+
+  The web side (rmf-web api server + dashboard) is a separate process group and
+  is NOT started here; use `ros2 run jetracer_fleet jetracer_rmf_web.sh`.
+  Two terminals total.
+
+  Why the adapter is delayed rather than started simultaneously: it calls
+  Adapter.make(), which asserts "Unable to initialize fleet adapter. Please
+  ensure RMF Schedule Node is running". It does discover the schedule node with a
+  60s timeout, so a simultaneous start usually recovers, but the adapter also
+  spends init_timeout_sec per robot waiting for tf, and starting it before the
+  schedule node muddles which of the two a slow startup is waiting on. The delay
+  keeps the logs readable.
+
+  Everything is still individually launchable: this file only includes
+  jetracer_rmf_core.launch.xml and jetracer_fleet_adapter.launch.xml, so the
+  step-by-step runbooks remain valid.
+-->
+<launch>
+  <arg name="server_uri" default="" description="URI of the rmf-web api server, e.g. ws://localhost:8000/_internal. Empty disables reporting to rmf-web (no robots will appear in the dashboard)."/>
+  <arg name="headless" default="false" description="true skips RViz -- useful when the dashboard is the only front end you need."/>
+  <arg name="require_all_robots" default="false" description="true = abort startup unless every robot in the fleet config initializes (upstream behaviour)."/>
+  <arg name="adapter_delay" default="8.0" description="Seconds to wait after RMF core before starting the fleet adapter."/>
+
+  <!--
+    Deliberately NOT named `config_file`. Both included files declare an arg by
+    that name and mean different things by it: RMF core's is the building map,
+    the adapter's is the fleet config. An <include> shares the parent's launch
+    configuration scope, so passing config_file to the first include leaks into
+    the second and the adapter is handed the building map, dying with
+    "Failed to parse config file [...jetracer.building.yaml]". Distinct names
+    here, and <group> scoping below, each independently prevent that.
+  -->
+  <arg name="fleet_config_file" default="$(find-pkg-share jetracer_fleet)/config/fleet/jetracer_fleet_config.yaml"/>
+  <arg name="building_map_file" default="$(find-pkg-share jetracer_fleet)/maps/jetracer/jetracer.building.yaml"/>
+  <arg name="nav_graph_file" default="$(find-pkg-share jetracer_fleet)/maps/jetracer/nav_graphs/0.yaml"/>
+  <arg name="zenoh_config" default="$(find-pkg-share jetracer_fleet)/config/zenoh/jetracer_fleet_adapter_zenoh_config.json5"/>
+  <arg name="viz_config_file" default="$(env HOME)/ff_ws/rviz_configs/rmf_fixed.rviz"/>
+  <arg name="use_sim_time" default="false"/>
+
+  <!-- RMF core -->
+  <group>
+    <include file="$(find-pkg-share jetracer_fleet)/launch/jetracer_rmf_core.launch.xml">
+      <arg name="server_uri" value="$(var server_uri)"/>
+      <arg name="config_file" value="$(var building_map_file)"/>
+      <arg name="viz_config_file" value="$(var viz_config_file)"/>
+      <arg name="headless" value="$(var headless)"/>
+      <arg name="use_sim_time" value="$(var use_sim_time)"/>
+    </include>
+  </group>
+
+  <!-- Fleet adapter, once the schedule node is up -->
+  <timer period="$(var adapter_delay)">
+    <group>
+      <include file="$(find-pkg-share jetracer_fleet)/launch/jetracer_fleet_adapter.launch.xml">
+        <arg name="server_uri" value="$(var server_uri)"/>
+        <arg name="config_file" value="$(var fleet_config_file)"/>
+        <arg name="nav_graph_file" value="$(var nav_graph_file)"/>
+        <arg name="zenoh_config" value="$(var zenoh_config)"/>
+        <arg name="require_all_robots" value="$(var require_all_robots)"/>
+      </include>
+    </group>
+  </timer>
+</launch>

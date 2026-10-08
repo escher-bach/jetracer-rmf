@@ -1,0 +1,220 @@
+diff --git a/free_fleet_adapter/free_fleet_adapter/nav2_robot_adapter.py b/free_fleet_adapter/free_fleet_adapter/nav2_robot_adapter.py
+index d226b60..e21404f 100644
+--- a/free_fleet_adapter/free_fleet_adapter/nav2_robot_adapter.py
++++ b/free_fleet_adapter/free_fleet_adapter/nav2_robot_adapter.py
+@@ -148,6 +148,19 @@ class Nav2RobotAdapter(RobotAdapter):
+         self.replan_counts = 0
+         self.nav_issue_ticket = None
+ 
++        # Waypoint identity, as nav graph indices rather than poses, of the
++        # goal the robot last actually arrived at and of the goal currently in
++        # flight. Used by _is_redundant(); see navigate().
++        self.last_reached_graph_index = None
++        self.current_goal_graph_index = None
++
++        # Minimum seconds between replan requests this adapter issues. 0.0
++        # (the default) keeps upstream behavior of replanning immediately,
++        # every time. See _request_replan().
++        self.replan_cooldown_sec = \
++            self.robot_config_yaml.get('replan_cooldown_sec', 0.0)
++        self.last_replan_time_sec = None
++
+         # Maps action name to plugin name
+         self.action_to_plugin_name = {}
+         # Maps plugin name to action factory
+@@ -197,16 +210,32 @@ class Nav2RobotAdapter(RobotAdapter):
+         self.node.get_logger().info(f'Initializing robot [{self.name}]...')
+         init_robot_pose = rclpy.Future()
+ 
++        # A discovery probe may already have populated the shared tf buffer.
++        # Reuse that pose immediately when it is available. Apart from making
++        # startup faster, this is required for robots added while the command
++        # node is already spinning: calling spin_until_future_complete() for a
++        # node that is already owned by the live executor would try to nest a
++        # second ROS spin.
++        buffered_pose = self.get_pose()
++        if buffered_pose is not None:
++            init_robot_pose.set_result(buffered_pose)
++
+         def _get_init_pose():
++            if init_robot_pose.done():
++                return
+             robot_pose = self.get_pose()
+             if robot_pose is not None:
+                 init_robot_pose.set_result(robot_pose)
+-                init_robot_pose.done()
+ 
+-        init_pose_timer = self.node.create_timer(1, _get_init_pose)
+-        rclpy.spin_until_future_complete(
+-            self.node, init_robot_pose, timeout_sec=init_timeout_sec
+-        )
++        init_pose_timer = None
++        if not init_robot_pose.done():
++            init_pose_timer = self.node.create_timer(1, _get_init_pose)
++            rclpy.spin_until_future_complete(
++                self.node, init_robot_pose, timeout_sec=init_timeout_sec
++            )
++
++        if init_pose_timer is not None:
++            self.node.destroy_timer(init_pose_timer)
+ 
+         if init_robot_pose.result() is None:
+             error_message = \
+@@ -214,7 +243,6 @@ class Nav2RobotAdapter(RobotAdapter):
+             self.node.get_logger().error(error_message)
+             raise RuntimeError(error_message)
+ 
+-        self.node.destroy_timer(init_pose_timer)
+         state = rmf_easy.RobotState(
+             self.get_map_name(),
+             init_robot_pose.result(),
+@@ -342,6 +370,64 @@ class Nav2RobotAdapter(RobotAdapter):
+         ]
+         return robot_pose
+ 
++    def _request_replan(self, reason: str) -> None:
++        # Every replan this adapter asks for produces a fresh plan, which
++        # enters the traffic schedule and can trigger a fresh negotiation.
++        # When nav2 aborts a goal the instant it is accepted -- which is what
++        # happens when another robot is sitting on the target -- the unguarded
++        # path here is: abort -> replan -> new goal -> abort, several times a
++        # second, with a negotiation attempt behind each one. The cooldown
++        # breaks that hot loop.
++        #
++        # This bounds the churn the adapter contributes. It cannot stop RMF's
++        # own forfeit -> "failed to negotiate" -> replan cycle, which lives in
++        # rmf_fleet_adapter and is only really cured by not having two robots
++        # contend for the same waypoint.
++        if self.update_handle is None:
++            self.node.get_logger().error(
++                f'Failed to replan for robot {self.name}, robot adapter has '
++                'not yet been initialized with a fleet update handle.'
++            )
++            return
++
++        now_sec = self.node.get_clock().now().nanoseconds / 1e9
++        if self.replan_cooldown_sec > 0.0 \
++                and self.last_replan_time_sec is not None \
++                and now_sec - self.last_replan_time_sec \
++                < self.replan_cooldown_sec:
++            self.node.get_logger().warn(
++                f'Suppressing replan for [{self.name}] ({reason}): previous '
++                f'request was {now_sec - self.last_replan_time_sec:.2f}s ago, '
++                f'cooldown is {self.replan_cooldown_sec}s'
++            )
++            return
++
++        self.last_replan_time_sec = now_sec
++        self.update_handle.more().replan()
++
++    def _is_redundant(self, destination: rmf_easy.Destination) -> bool:
++        # Compare waypoint identity, never pose.
++        #
++        # With responsive_wait enabled, RMF re-issues a go_to_place for the
++        # waypoint an idle robot is already parked on every 30s (its hardcoded
++        # ResponsiveWait update_period) whenever the reported pose is not
++        # exactly on that point. Ours settle ~0.2m off, so it fires forever,
++        # and each re-issue carries a freshly planned yaw -- which on an
++        # Ackermann chassis is a multi-point turn, not a spin. The robots never
++        # rest.
++        #
++        # Keying on the nav graph index means there is no "close enough"
++        # threshold to tune and no risk of suppressing a real move: either RMF
++        # is naming the waypoint the robot last arrived at, in which case the
++        # command asks for nothing, or it is naming a different waypoint and
++        # the robot drives. A robot being asked to yield is always being sent
++        # to a different waypoint, so yielding is untouched.
++        if destination.dock is not None:
++            return False
++        if destination.graph_index is None:
++            return False
++        return destination.graph_index == self.last_reached_graph_index
++
+     def _is_navigation_done(self, nav_handle: ExecutionHandle) -> bool:
+         if nav_handle.goal_id is None:
+             return True
+@@ -376,6 +462,10 @@ class Nav2RobotAdapter(RobotAdapter):
+                         self.node.get_logger().info(
+                             f'Navigation goal {nav_handle.goal_id} reached'
+                         )
++                        # Confirmed arrival: this is the only place the robot
++                        # is recorded as being on a waypoint.
++                        self.last_reached_graph_index = \
++                            self.current_goal_graph_index
+                         if self.nav_issue_ticket is not None:
+                             msg = {}
+                             self.nav_issue_ticket.resolve(msg)
+@@ -404,7 +494,9 @@ class Nav2RobotAdapter(RobotAdapter):
+                             f'{rep.status}, replan count '
+                             f'[{self.replan_counts}]'
+                         )
+-                        self.update_handle.more().replan()
++                        self._request_replan(
++                            f'nav goal status {rep.status}'
++                        )
+                         return False
+             except Exception as e:
+                 self.node.get_logger().debug(
+@@ -492,13 +584,7 @@ class Nav2RobotAdapter(RobotAdapter):
+                 f'[{self.replan_counts}]'
+             )
+ 
+-            if self.update_handle is None:
+-                error_message = \
+-                    f'Failed to replan for robot {self.name}, robot adapter ' \
+-                    'has not yet been initialized with a fleet update handle.'
+-                self.node.get_logger().error(error_message)
+-                return
+-            self.update_handle.more().replan()
++            self._request_replan(f'destination on map [{map_name}]')
+             return
+ 
+         time_now = self.node.get_clock().now().seconds_nanoseconds()
+@@ -545,14 +631,7 @@ class Nav2RobotAdapter(RobotAdapter):
+                     f'Navigation goal {nav_goal_id} was rejected, replan '
+                     f'count [{self.replan_counts}]'
+                 )
+-                if self.update_handle is None:
+-                    error_message = \
+-                        f'Failed to replan for robot {self.name}, robot ' \
+-                        'adapter has not yet been initialized with a fleet ' \
+-                        'update handle.'
+-                    self.node.get_logger().error(error_message)
+-                    return
+-                self.update_handle.more().replan()
++                self._request_replan('nav goal rejected')
+                 return
+             except Exception as e:
+                 payload = reply.err.payload.to_string()
+@@ -567,10 +646,31 @@ class Nav2RobotAdapter(RobotAdapter):
+         execution: rmf_easy.CommandExecution
+     ):
+         self._request_stop(self.exec_handle)
++
++        if self._is_redundant(destination):
++            self.node.get_logger().info(
++                f'[{self.name}] is already on waypoint [{destination.name}] '
++                f'(graph index {destination.graph_index}); reporting the '
++                f'command complete without commanding nav2'
++            )
++            # No ExecutionHandle here on purpose: its constructor acquires a
++            # mutex that only set_goal_id/set_action release, so a handle that
++            # never receives a goal id would block the next _request_stop
++            # forever.
++            self.exec_handle = None
++            execution.finished()
++            return
++
+         self.node.get_logger().info(
+             f'Commanding [{self.name}] to navigate to {destination.position} '
+             f'on map [{destination.map}]'
+         )
++        # The robot is leaving whatever waypoint it was on. Only a confirmed
++        # STATUS_SUCCEEDED restores last_reached_graph_index, so a goal that is
++        # cancelled or aborted correctly leaves the robot recorded as being on
++        # no waypoint at all, and the next command is always executed.
++        self.last_reached_graph_index = None
++        self.current_goal_graph_index = destination.graph_index
+         self.exec_handle = ExecutionHandle(execution)
+         self._handle_navigate_to_pose(
+             destination.map,

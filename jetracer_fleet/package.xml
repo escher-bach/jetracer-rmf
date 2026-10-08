@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>jetracer_fleet</name>
+  <version>0.0.1</version>
+  <description>
+    RMF building map, fleet config, and launch files for the jetracer fleet.
+    Jetracer-specific maps, configuration, dashboard, and resilient runtime
+    onboarding built on free_fleet_adapter/free_fleet_examples.
+  </description>
+  <maintainer email="user@todo.todo">User</maintainer>
+  <license>Apache License 2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>free_fleet_adapter</exec_depend>
+  <exec_depend>free_fleet_examples</exec_depend>
+  <exec_depend>rmf_building_map_tools</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

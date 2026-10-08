@@ -1,0 +1,28 @@
+// Config for the free_fleet_adapter Python process's OWN zenoh session
+// (Jazzy side) -- distinct from jetracer_zenoh_bridge_ros2dds_client_config.json5,
+// which configures the separate zenoh-bridge-ros2dds binary near/on the robot.
+// This one has no `plugins.ros2dds` section because the Python adapter talks
+// raw zenoh + pycdr2, not the DDS bridge plugin.
+//
+// This file is what real-robot-integration-next-steps.md (Stage F) flagged as
+// currently unused/defaulted -- the stock free_fleet_adapter/launch/
+// fleet_adapter.launch.xml never forwards --zenoh-config, so
+// jetracer_fleet_adapter.launch.xml in this package invokes fleet_adapter.py
+// directly instead of going through that wrapper, specifically to pass this
+// file in without needing to touch free_fleet_adapter's source.
+{
+  mode: "client",
+  connect: {
+    // The router runs on the same physical machine as this fleet adapter
+    // (different WSL2 distro, same Windows host) -- WSL2 distros on one host
+    // share a single network namespace/IP, so loopback reaches across distros
+    // with no routing needed. This is NOT the same as
+    // jetracer_zenoh_bridge_ros2dds_client_config.json5's endpoint: that one
+    // runs on a physically separate Jetson reaching the router over real
+    // WiFi, so it needs the router's real LAN IP, not loopback.
+    endpoints: ["tcp/127.0.0.1:7447"]
+  },
+  listen: {
+    endpoints: []
+  },
+}

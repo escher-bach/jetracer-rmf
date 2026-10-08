@@ -1,0 +1,36 @@
+<?xml version='1.0' ?>
+
+<!--
+  Equivalent of free_fleet_examples/launch/nav2_tb3_simulation_fleet_adapter.launch.xml,
+  but runs this package's own fleet_adapter entry point
+  (scripts/jetracer_fleet_adapter.py) rather than free_fleet_adapter's, for two
+  reasons:
+
+  1. free_fleet_adapter's own fleet_adapter.launch.xml wrapper never exposes the
+     zenoh config CLI option (see jetracer_fleet_adapter_zenoh_config.json5 for
+     why that matters for a real deployment).
+  2. jetracer_fleet_adapter.py discovers jetracer_* TF namespaces and adds
+     them to the running RMF fleet with an unused configured parking spot.
+     Legacy robots explicitly listed in `robots` are still initialized
+     independently; require_all_robots:=true restores fail-fast startup for
+     those fixed entries only.
+
+  The script imports Nav2RobotAdapter and friends from free_fleet_adapter.
+-->
+<launch>
+  <arg name="server_uri" default="" description="URI of the api server to transmit state and task information."/>
+  <arg name="config_file" default="$(find-pkg-share jetracer_fleet)/config/fleet/jetracer_fleet_config.yaml"/>
+  <arg name="nav_graph_file" default="$(find-pkg-share jetracer_fleet)/maps/jetracer/nav_graphs/0.yaml"/>
+  <arg name="zenoh_config" default="$(find-pkg-share jetracer_fleet)/config/zenoh/jetracer_fleet_adapter_zenoh_config.json5"/>
+  <!-- Takes an explicit true/false value rather than being a bare presence flag,
+       so it can be interpolated straight into args without conditional launch
+       plumbing. The script accepts both forms. -->
+  <arg name="require_all_robots" default="false" description="true = abort startup unless every robot in the fleet config initializes (upstream behaviour); false = skip unavailable robots."/>
+
+  <node pkg="jetracer_fleet"
+        exec="jetracer_fleet_adapter.py"
+        args="-c $(var config_file) -n $(var nav_graph_file) --zenoh-config $(var zenoh_config) --require-all-robots $(var require_all_robots)"
+        output="both">
+    <param name="server_uri" value="$(var server_uri)"/>
+  </node>
+</launch>

@@ -1,0 +1,48 @@
+coordinate_system: reference_image
+crowd_sim:
+  agent_groups:
+    - {agents_name: [], agents_number: 0, group_id: 0, profile_selector: external_agent, state_selector: external_static, x: 0, y: 0}
+  agent_profiles:
+    - {ORCA_tau: 1, ORCA_tauObst: 0.40000000000000002, class: 1, max_accel: 0, max_angle_vel: 0, max_neighbors: 10, max_speed: 0, name: external_agent, neighbor_dist: 5, obstacle_set: 1, pref_speed: 0, r: 0.25}
+  enable: 0
+  goal_sets: []
+  model_types: []
+  obstacle_set: {class: 1, file_name: L1_navmesh.nav, type: nav_mesh}
+  states:
+    - {final: 1, goal_set: -1, name: external_static, navmesh_file_name: ""}
+  transitions: []
+  update_time_step: 0.10000000000000001
+graphs:
+  {}
+levels:
+  L1:
+    drawing:
+      filename: jetracer_map.png
+    elevation: 0
+    lanes:
+      - [2, 6, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [6, 3, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [3, 0, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [0, 7, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [7, 2, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [7, 8, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [8, 6, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [3, 5, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+      - [5, 1, {bidirectional: [4, true], demo_mock_floor_name: [1, ""], demo_mock_lift_name: [1, ""], graph_idx: [2, 0], mutex: [1, ""], orientation: [1, ""], speed_limit: [3, 0]}]
+    layers:
+      {}
+    measurements:
+      - [1, 2, {distance: [3, 6.5097]}]
+    vertices:
+      - [208.60300000000001, 146.75399999999999, 0, inventory, {is_charger: [4, true], is_holding_point: [4, true], is_parking_spot: [4, true]}]
+      - [189.57300000000001, 227.63300000000001, 0, door, {is_charger: [4, true], is_holding_point: [4, true], is_parking_spot: [4, true]}]
+      - [116.88500000000001, 119.62, 0, top, {is_charger: [4, true], is_holding_point: [4, true], is_parking_spot: [4, true]}]
+      - [182.25299999999999, 179.691, 0, diamond, {is_charger: [4, true], is_holding_point: [4, true], is_parking_spot: [4, true]}]
+      - [93.823999999999998, 87.997, 0, ""]
+      - [213.727, 185.91300000000001, 0, bottom, {is_holding_point: [4, true], is_parking_spot: [4, true]}]
+      - [132.11500000000001, 183.351, 0, operator, {is_charger: [4, true], is_holding_point: [4, true], is_parking_spot: [4, true]}]
+      - [183.786, 131.16900000000001, 0, right, {is_holding_point: [4, true], is_parking_spot: [4, true]}]
+      - [157.733, 150.41399999999999, 0, center, {is_holding_point: [4, true]}]
+lifts: {}
+name: jetracer
+reference_level_name: L1

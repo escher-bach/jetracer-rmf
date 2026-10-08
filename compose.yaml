@@ -1,0 +1,32 @@
+name: jetracer-rmf
+
+services:
+  rmf:
+    image: ${RMF_IMAGE:-jetracer-rmf:jazzy}
+    build:
+      context: .
+      dockerfile: jetracer_fleet/docker/Dockerfile
+      args:
+        RMF_WEB_REF: ${RMF_WEB_REF:-dbee3f9e27ba2f9313db68078428754b715bf0ba}
+    environment:
+      ZENOH_ROUTER_ENDPOINT: ${ZENOH_ROUTER_ENDPOINT:?Set ZENOH_ROUTER_ENDPOINT in .env}
+      RMF_PUBLIC_URL: ${RMF_PUBLIC_URL:-http://localhost:8080}
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-52}
+      TZ: ${TZ:-Asia/Kolkata}
+    ports:
+      - "${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_PORT:-8080}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - rmf-web-data:/data/rmf-web
+    shm_size: 256m
+    restart: unless-stopped
+    stop_grace_period: 75s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  rmf-web-data:

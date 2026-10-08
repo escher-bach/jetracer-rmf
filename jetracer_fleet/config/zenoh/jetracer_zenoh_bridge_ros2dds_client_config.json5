@@ -1,0 +1,33 @@
+// REFERENCE ONLY -- per your note, the Humble-side router-mode
+// zenoh-bridge-ros2dds that the robots already connect to is already running
+// with a unique /jetracer_<name> namespace; this file is not something new to
+// deploy. Kept here only as a record of what jetracer_fleet_config.yaml
+// assumes is already true on that side, namely: each jetracer namespace's tf and
+// navigate_to_pose action are bridged, and battery_state is NOT (jetracer.cpp
+// has no battery publisher at all, and Nav2RobotAdapter already defaults to a
+// permanent 1.0 battery_soc if that topic is never bridged -- so simply never
+// bridging it is the entire "remove battery functionality" fix, nothing to
+// build). If your actual running config differs from this, that's the
+// authoritative one, not this file.
+{
+  plugins: {
+    ros2dds: {
+      namespace: "/jetracer_alpha", // one bridge instance per robot; choose any unique name beginning /jetracer_ and the fleet adapter discovers it from TF
+      allow: {
+        publishers: [".*/tf"],
+        subscribers: [],
+        service_servers: [],
+        service_clients: [],
+        action_servers: [".*/navigate_to_pose"],
+        action_clients: [],
+      },
+    },
+  },
+  mode: "client",
+  connect: {
+    endpoints: ["tcp/<ROUTER_IP>:7447"]
+  },
+  listen: {
+    endpoints: []
+  },
+}
