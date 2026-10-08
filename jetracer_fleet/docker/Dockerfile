@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # One Jazzy revision for both the API and browser client.
-FROM node:22-bookworm-slim AS web-source
+FROM node:25-bookworm-slim AS web-source
 ARG RMF_WEB_REF=dbee3f9e27ba2f9313db68078428754b715bf0ba
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
